@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Holi Balloon Toss Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: skyblue;
+        }
+        canvas {
+            display: block;
+        }
+        #gameInfo {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            font-size: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameInfo">Lives: 3 | Time: 0</div>
+    <canvas id="gameCanvas"></canvas>
+    <audio id="backgroundMusic" loop>
+        <source src="background.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+    </audio>
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let backgroundTransparency = 0.5;
+        let kid = { x: canvas.width / 2, y: canvas.height - 150, width: 50, height: 100, speed: 5, frame: 0, moving: false, direction: 1, velocityY: 0, onGround: true };
+        let balloons = [];
+        let smashes = [];
+        let airplanes = [];
+        let enemies = [];
+        let bullets = [];
+        let gravity = 0.2;
+        let keys = {};
+        let lives = 3;
+        let gameOver = false;
+        let gameStartTime = Date.now();
+        let gameTime = 0;
+        let gamePaused = false;
+
+        // Background scrolling
+        let backgroundOffset = 0;
+        const backgroundSpeed = 1;
+
+        // Sound effects
+        const explosionSound = new Audio("explosion.mp3");
+        const bulletSound = new Audio("bullet.mp3");
+        const livesSound = new Audio("lives.mp3");
+        const backgroundMusic = document.getElementById("backgroundMusic");
+
+        // Start background music
+        backgroundMusic.play();
+
+        const balloonImages = ["yellow.png", "blue.png", "red.png", "green.png", "orange.png"].map(src => {
+            let img = new Image();
+            img.src = src;
+            return img;
+        });
+
+        const kidImages = Array.from({ length: 5 }, (_, i) => {
+            let img = new Image();
+            img.src = `boy_${i + 1}.png`;
+            return img;
+        });
+
+        const baseImage = new Image();
+        baseImage.src = 'base.png';
+
+        const smashImages = ["smash.png", "smash3.png"].map(src => {
+            let img = new Image();
+            img.src = src;
+            return img;
+        });
+
+        const backgroundImage = new Image();
+        backgroundImage.src = 'background.png';
+
+        const airplaneImages = Array.from({ length: 5 }, (_, i) => {
+            let img = new Image();
+            img.src = `plane_${i + 1}.png`;
+            return img;
+        });
+
+        const parachuteImage = new Image();
+        parachuteImage.src = "parashoot.png";
+
+        const enemyRunImages = Array.from({ length: 7 }, (_, i) => {
+            let img = new Image();
+            img.src = `enemy${i + 1}.png`;
+            return img;
+        });
+
+        const waterImage = new Image();
+        waterImage.src = "water.png";
+
+        const explodeImage = new Image();
+        explodeImage.src = "explode.png";
+        explodeImage.onerror = () => {
+            console.warn("Explode image not found! Using a placeholder.");
+            explodeImage.src = "placeholder.png"; // Use a placeholder image if explode.png is missing
+        };
+
+        function drawBackground() {
+            ctx.save();
+            ctx.globalAlpha = backgroundTransparency;
+            // Draw two background images side by side for seamless looping
+            ctx.drawImage(backgroundImage, backgroundOffset, 0, canvas.width, canvas.height);
+            ctx.drawImage(backgroundImage, backgroundOffset + canvas.width, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            // Update background offset for scrolling effect
+            backgroundOffset -= backgroundSpeed;
+            if (backgroundOffset <= -canvas.width) {
+                backgroundOffset = 0;
+            }
+        }
+
+        function drawBase() {
+            ctx.drawImage(baseImage, 0, canvas.height - 50, canvas.width, 50);
+        }
+
+        function drawKid() {
+            let img = kidImages[kid.frame];
+            ctx.save();
+            if (kid.direction === -1) {
+                ctx.scale(-1, 1);
+                ctx.drawImage(img, -kid.x - kid.width, kid.y, kid.width, kid.height);
+            } else {
+                ctx.drawImage(img, kid.x, kid.y, kid.width, kid.height);
+            }
+            ctx.restore();
+        }
+
+        function drawBalloons() {
+            balloons.forEach(balloon => {
+                ctx.drawImage(balloon.image, balloon.x - 15, balloon.y - 15, 30, 30);
+            });
+        }
+
+        function drawSmashes() {
+            smashes.forEach(smash => {
+                ctx.drawImage(smash.image, smash.x - 30, smash.y - 30, 60, 60); // Draw smash at the correct position
+            });
+        }
+
+        function drawAirplanes() {
+            airplanes.forEach(plane => {
+                ctx.save();
+                if (plane.speedX < 0) {
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(plane.image, -plane.x - 80, plane.y, 80, 40);
+                } else {
+                    ctx.drawImage(plane.image, plane.x, plane.y, 80, 40);
+                }
+                ctx.restore();
+            });
+        }
+
+        function drawEnemies() {
+            enemies.forEach(enemy => {
+                ctx.save();
+                if (enemy.direction === -1) {
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(enemy.image, -enemy.x - 40, enemy.y, 40, 60);
+                } else {
+                    ctx.drawImage(enemy.image, enemy.x, enemy.y, 40, 60);
+                }
+                ctx.restore();
+            });
+        }
+
+        function drawBullets() {
+            bullets.forEach(bullet => {
+                ctx.drawImage(waterImage, bullet.x, bullet.y, 20, 20);
+            });
+        }
+
+        function updateBalloons() {
+            balloons.forEach((balloon, index) => {
+                balloon.x -= balloon.speedX;
+                balloon.y -= balloon.speedY;
+                balloon.speedY -= gravity;
+
+                if (balloon.y > canvas.height - 50) {
+                    let randomSmash = smashImages[Math.floor(Math.random() * smashImages.length)];
+                    // Add a balloon smash to the base (type: "balloon")
+                    smashes.push({ x: balloon.x, y: canvas.height - 50, image: randomSmash, type: "balloon" });
+                    balloons.splice(index, 1);
+                }
+
+                if (checkCollision(kid, balloon)) {
+                    lives--;
+                    livesSound.play(); // Play lives loss sound
+                    balloons.splice(index, 1);
+                    if (lives <= 0) {
+                        gameOver = true;
+                    }
+                }
+            });
+        }
+
+        function updateEnemies() {
+            enemies.forEach((enemy, index) => {
+                if (!enemy.landed) {
+                    enemy.y += gravity * 5;
+                    if (enemy.y >= canvas.height - 100) {
+                        enemy.landed = true;
+                        enemy.y = canvas.height - 100;
+                    }
+                } else {
+                    if (enemy.x < kid.x) {
+                        enemy.speedX = 1.5;
+                        enemy.direction = 1;
+                    } else {
+                        enemy.speedX = -1.5;
+                        enemy.direction = -1;
+                    }
+
+                    enemy.x += enemy.speedX;
+
+                    enemy.image = enemyRunImages[Math.floor(Date.now() / 100) % enemyRunImages.length];
+
+                    // Check collision with kid
+                    if (checkCollision(kid, enemy)) {
+                        lives--;
+                        livesSound.play(); // Play lives loss sound
+                        enemies.splice(index, 1); // Remove the enemy
+                        if (lives <= 0) {
+                            gameOver = true;
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateKid() {
+            kid.moving = false;
+            if (keys["ArrowLeft"] && kid.x > 0) {
+                kid.x -= kid.speed;
+                kid.moving = true;
+                kid.direction = -1;
+            }
+            if (keys["ArrowRight"] && kid.x + kid.width < canvas.width) {
+                kid.x += kid.speed;
+                kid.moving = true;
+                kid.direction = 1;
+            }
+            if (keys["ArrowUp"] && kid.onGround) {
+                kid.velocityY = -5;
+                kid.onGround = false;
+            }
+
+            kid.y += kid.velocityY;
+            kid.velocityY += gravity;
+
+            if (kid.y > canvas.height - 150) {
+                kid.y = canvas.height - 150;
+                kid.velocityY = 0;
+                kid.onGround = true;
+            }
+
+            if (kid.moving && kid.onGround) {
+                kid.frame = (kid.frame + 1) % kidImages.length;
+            } else {
+                kid.frame = 0;
+            }
+        }
+
+        function spawnAirplane() {
+            let randomIndex = Math.floor(Math.random() * airplaneImages.length);
+            let randomPlane = airplaneImages[randomIndex];
+            let startX = Math.random() < 0.5 ? -100 : canvas.width + 100;
+            let speedX = startX < 0 ? 2 : -2;
+
+            airplanes.push({
+                x: startX,
+                y: Math.random() * (canvas.height / 3),
+                speedX: speedX,
+                image: randomPlane,
+                dropTime: Math.random() * 100 + 50,
+                isPlane5: randomIndex === 4
+            });
+
+            setTimeout(spawnAirplane, Math.random() * 5000 + 3000);
+        }
+
+        function updateAirplanes() {
+            airplanes.forEach((plane, index) => {
+                plane.x += plane.speedX;
+                plane.dropTime--;
+
+                if (plane.dropTime <= 0) {
+                    if (plane.isPlane5) {
+                        enemies.push({ x: plane.x, y: plane.y + 20, speedX: 0, image: parachuteImage, landed: false, direction: 1 });
+                    } else {
+                        let randomBalloon = balloonImages[Math.floor(Math.random() * balloonImages.length)];
+                        balloons.push({ x: plane.x, y: plane.y + 20, speedX: 0, speedY: -2, image: randomBalloon });
+                    }
+                    plane.dropTime = Math.random() * 100 + 50;
+                }
+
+                if (plane.x < -100 || plane.x > canvas.width + 100) {
+                    airplanes.splice(index, 1);
+                }
+            });
+        }
+
+        function updateBullets() {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                bullet.x += bullet.speedX;
+                bullet.y += bullet.speedY;
+
+                // Check for collision with planes
+                for (let j = airplanes.length - 1; j >= 0; j--) {
+                    const plane = airplanes[j];
+                    if (checkCollision(bullet, plane)) {
+                        // Add explosion effect at the plane's position (type: "explosion")
+                        smashes.push({ x: plane.x, y: plane.y, image: explodeImage, startTime: Date.now(), type: "explosion" });
+                        explosionSound.play(); // Play explosion sound
+                        // Remove the plane and bullet
+                        airplanes.splice(j, 1);
+                        bullets.splice(i, 1);
+                        break; // Exit the inner loop after handling the collision
+                    }
+                }
+
+                // Check for collision with enemies
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    const enemy = enemies[j];
+                    if (checkCollision(bullet, enemy)) {
+                        // Remove the enemy and bullet
+                        enemies.splice(j, 1);
+                        bullets.splice(i, 1);
+                        break; // Exit the inner loop after handling the collision
+                    }
+                }
+
+                // Remove bullets that go off-screen
+                if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
+                    bullets.splice(i, 1);
+                }
+            }
+        }
+
+        function updateSmashes() {
+            const currentTime = Date.now();
+            for (let i = smashes.length - 1; i >= 0; i--) {
+                const smash = smashes[i];
+                // Remove only explosion smashes after 1 second
+                if (smash.type === "explosion" && currentTime - smash.startTime > 1000) {
+                    smashes.splice(i, 1); // Remove the explosion after 1 second
+                }
+                // Balloon smashes on the base are not removed
+            }
+        }
+
+        function checkCollision(obj1, obj2) {
+            return obj1.x < obj2.x + 30 &&
+                   obj1.x + 30 > obj2.x &&
+                   obj1.y < obj2.y + 30 &&
+                   obj1.y + 30 > obj2.y;
+        }
+
+        function gameLoop() {
+            if (gamePaused) {
+                requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawBackground();
+            updateAirplanes();
+            drawAirplanes();
+            drawBase();
+            updateSmashes(); // Update smashes to remove expired explosions
+            drawSmashes();
+            updateKid();
+            drawKid();
+            drawBalloons();
+            updateBalloons();
+            updateEnemies();
+            drawEnemies();
+            updateBullets();
+            drawBullets();
+
+            if (!gameOver) {
+                gameTime = Math.floor((Date.now() - gameStartTime) / 1000);
+                document.getElementById("gameInfo").innerText = `Lives: ${lives} | Time: ${gameTime}`;
+                requestAnimationFrame(gameLoop);
+            } else {
+                document.getElementById("gameInfo").innerText = `Game Over! Time: ${gameTime}`;
+                if (confirm("Game Over! Do you want to replay?")) {
+                    location.reload();
+                }
+            }
+        }
+
+        window.addEventListener("keydown", (event) => {
+            keys[event.key] = true;
+            if (event.key === "p" || event.key === "P") {
+                gamePaused = !gamePaused;
+            }
+        });
+
+        window.addEventListener("keyup", (event) => { keys[event.key] = false; });
+
+        canvas.addEventListener("click", (event) => {
+            if (gamePaused) return;
+
+            const mouseX = event.clientX;
+            const mouseY = event.clientY;
+
+            const angle = Math.atan2(mouseY - (kid.y + kid.height / 2), mouseX - (kid.x + kid.width / 2));
+            const speed = 5;
+
+            bullets.push({
+                x: kid.x + kid.width / 2,
+                y: kid.y + kid.height / 2,
+                speedX: Math.cos(angle) * speed,
+                speedY: Math.sin(angle) * speed
+            });
+
+            bulletSound.play(); // Play bullet shooting sound
+        });
+
+        spawnAirplane();
+        backgroundImage.onload = () => { gameLoop(); };
+    </script>
+</body>
+</html>
