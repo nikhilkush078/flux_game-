@@ -2,13 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Holi Balloon Toss Game</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background-color: skyblue;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
         }
         canvas {
             display: block;
@@ -21,6 +25,30 @@
             font-family: Arial, sans-serif;
             font-size: 20px;
         }
+        .button {
+        position: absolute;
+        width: 80px;
+        height: 80px;
+        border: none;
+        border-radius: 50%;
+        background-color: rgba(255, 255, 255, 0.5);
+        font-size: 20px;
+        cursor: pointer;
+        outline: none;
+        margin: 10px;
+        }
+        #leftButton {
+            left: 20px;
+            bottom: 20px;
+        }
+        #rightButton {
+            right:925px;
+            bottom: 20px;
+        }
+        #jumpButton {
+            bottom: 120px;
+            left: 20px;
+        }
     </style>
 </head>
 <body>
@@ -30,6 +58,9 @@
         <source src="background.mp3" type="audio/mpeg">
         Your browser does not support the audio element.
     </audio>
+    <button id="leftButton" class="button">←</button>
+    <button id="rightButton" class="button">→</button>
+    <button id="jumpButton" class="button">↑</button>
     <script>
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
@@ -42,7 +73,6 @@
         let smashes = [];
         let airplanes = [];
         let enemies = [];
-        let bullets = [];
         let gravity = 0.2;
         let keys = {};
         let lives = 3;
@@ -113,15 +143,15 @@
             explodeImage.src = "placeholder.png"; // Use a placeholder image if explode.png is missing
         };
 
+        let activeBullet = null; // Track the active bullet
+
         function drawBackground() {
             ctx.save();
             ctx.globalAlpha = backgroundTransparency;
-            // Draw two background images side by side for seamless looping
             ctx.drawImage(backgroundImage, backgroundOffset, 0, canvas.width, canvas.height);
             ctx.drawImage(backgroundImage, backgroundOffset + canvas.width, 0, canvas.width, canvas.height);
             ctx.restore();
 
-            // Update background offset for scrolling effect
             backgroundOffset -= backgroundSpeed;
             if (backgroundOffset <= -canvas.width) {
                 backgroundOffset = 0;
@@ -152,7 +182,7 @@
 
         function drawSmashes() {
             smashes.forEach(smash => {
-                ctx.drawImage(smash.image, smash.x - 30, smash.y - 30, 60, 60); // Draw smash at the correct position
+                ctx.drawImage(smash.image, smash.x - 30, smash.y - 30, 60, 60);
             });
         }
 
@@ -183,9 +213,9 @@
         }
 
         function drawBullets() {
-            bullets.forEach(bullet => {
-                ctx.drawImage(waterImage, bullet.x, bullet.y, 20, 20);
-            });
+            if (activeBullet) {
+                ctx.drawImage(waterImage, activeBullet.x, activeBullet.y, 20, 20);
+            }
         }
 
         function updateBalloons() {
@@ -196,14 +226,13 @@
 
                 if (balloon.y > canvas.height - 50) {
                     let randomSmash = smashImages[Math.floor(Math.random() * smashImages.length)];
-                    // Add a balloon smash to the base (type: "balloon")
                     smashes.push({ x: balloon.x, y: canvas.height - 50, image: randomSmash, type: "balloon" });
                     balloons.splice(index, 1);
                 }
 
                 if (checkCollision(kid, balloon)) {
                     lives--;
-                    livesSound.play(); // Play lives loss sound
+                    livesSound.play();
                     balloons.splice(index, 1);
                     if (lives <= 0) {
                         gameOver = true;
@@ -248,19 +277,21 @@
 
         function updateKid() {
             kid.moving = false;
-            if (keys["ArrowLeft"] && kid.x > 0) {
+            if (keys["ArrowLeft"] || keys["left"]) {
                 kid.x -= kid.speed;
                 kid.moving = true;
                 kid.direction = -1;
             }
-            if (keys["ArrowRight"] && kid.x + kid.width < canvas.width) {
+            if (keys["ArrowRight"] || keys["right"]) {
                 kid.x += kid.speed;
                 kid.moving = true;
                 kid.direction = 1;
             }
-            if (keys["ArrowUp"] && kid.onGround) {
-                kid.velocityY = -5;
-                kid.onGround = false;
+            if (keys["ArrowUp"] || keys["jump"]) {
+                if (kid.onGround) {
+                    kid.velocityY = -5;
+                    kid.onGround = false;
+                }
             }
 
             kid.y += kid.velocityY;
@@ -291,7 +322,7 @@
                 speedX: speedX,
                 image: randomPlane,
                 dropTime: Math.random() * 100 + 50,
-                isPlane5: randomIndex === 4
+                isPlane5: randomIndex === 4 // Mark plane 5
             });
 
             setTimeout(spawnAirplane, Math.random() * 5000 + 3000);
@@ -319,39 +350,35 @@
         }
 
         function updateBullets() {
-            for (let i = bullets.length - 1; i >= 0; i--) {
-                const bullet = bullets[i];
-                bullet.x += bullet.speedX;
-                bullet.y += bullet.speedY;
+            if (activeBullet) {
+                activeBullet.x += activeBullet.speedX;
+                activeBullet.y += activeBullet.speedY;
 
                 // Check for collision with planes
                 for (let j = airplanes.length - 1; j >= 0; j--) {
                     const plane = airplanes[j];
-                    if (checkCollision(bullet, plane)) {
-                        // Add explosion effect at the plane's position (type: "explosion")
+                    if (checkCollision(activeBullet, plane)) {
                         smashes.push({ x: plane.x, y: plane.y, image: explodeImage, startTime: Date.now(), type: "explosion" });
-                        explosionSound.play(); // Play explosion sound
-                        // Remove the plane and bullet
+                        explosionSound.play();
                         airplanes.splice(j, 1);
-                        bullets.splice(i, 1);
-                        break; // Exit the inner loop after handling the collision
+                        activeBullet = null; // Reset active bullet after it disappears
+                        break; // Exit the loop after handling the collision
                     }
                 }
 
                 // Check for collision with enemies
                 for (let j = enemies.length - 1; j >= 0; j--) {
                     const enemy = enemies[j];
-                    if (checkCollision(bullet, enemy)) {
-                        // Remove the enemy and bullet
-                        enemies.splice(j, 1);
-                        bullets.splice(i, 1);
-                        break; // Exit the inner loop after handling the collision
+                    if (checkCollision(activeBullet, enemy)) {
+                        enemies.splice(j, 1); // Remove the enemy
+                        activeBullet = null; // Reset active bullet after it disappears
+                        break; // Exit the loop after handling the collision
                     }
                 }
 
-                // Remove bullets that go off-screen
-                if (bullet.x < 0 || bullet.x > canvas.width || bullet.y < 0 || bullet.y > canvas.height) {
-                    bullets.splice(i, 1);
+                // Remove bullet if it goes off-screen
+                if (activeBullet && (activeBullet.x < 0 || activeBullet.x > canvas.width || activeBullet.y < 0 || activeBullet.y > canvas.height)) {
+                    activeBullet = null; // Reset active bullet after it disappears
                 }
             }
         }
@@ -360,19 +387,24 @@
             const currentTime = Date.now();
             for (let i = smashes.length - 1; i >= 0; i--) {
                 const smash = smashes[i];
-                // Remove only explosion smashes after 1 second
                 if (smash.type === "explosion" && currentTime - smash.startTime > 1000) {
-                    smashes.splice(i, 1); // Remove the explosion after 1 second
+                    smashes.splice(i, 1);
                 }
-                // Balloon smashes on the base are not removed
             }
         }
 
         function checkCollision(obj1, obj2) {
-            return obj1.x < obj2.x + 30 &&
-                   obj1.x + 30 > obj2.x &&
-                   obj1.y < obj2.y + 30 &&
-                   obj1.y + 30 > obj2.y;
+            if (!obj1 || !obj2) return false; // Check for null values
+
+            const obj1Width = obj1.width || 30; // Default width for bullets and balloons
+            const obj1Height = obj1.height || 30; // Default height for bullets and balloons
+            const obj2Width = obj2.width || 40; // Default width for enemies
+            const obj2Height = obj2.height || 60; // Default height for enemies
+
+            return obj1.x < obj2.x + obj2Width &&
+                   obj1.x + obj1Width > obj2.x &&
+                   obj1.y < obj2.y + obj2Height &&
+                   obj1.y + obj1Height > obj2.y;
         }
 
         function gameLoop() {
@@ -386,7 +418,7 @@
             updateAirplanes();
             drawAirplanes();
             drawBase();
-            updateSmashes(); // Update smashes to remove expired explosions
+            updateSmashes();
             drawSmashes();
             updateKid();
             drawKid();
@@ -418,23 +450,48 @@
 
         window.addEventListener("keyup", (event) => { keys[event.key] = false; });
 
+        // Mobile button event listeners
+        document.getElementById("leftButton").addEventListener("touchstart", () => {
+            keys["left"] = true;
+        });
+        document.getElementById("leftButton").addEventListener("touchend", () => {
+            keys["left"] = false;
+        });
+
+        document.getElementById("rightButton").addEventListener("touchstart", () => {
+            keys["right"] = true;
+        });
+        document.getElementById("rightButton").addEventListener("touchend", () => {
+            keys["right"] = false;
+        });
+
+        document.getElementById("jumpButton").addEventListener("touchstart", () => {
+            keys["jump"] = true;
+        });
+        document.getElementById("jumpButton").addEventListener("touchend", () => {
+            keys["jump"] = false;
+        });
+
         canvas.addEventListener("click", (event) => {
             if (gamePaused) return;
 
-            const mouseX = event.clientX;
-            const mouseY = event.clientY;
+            // Only allow shooting if there is no active bullet
+            if (!activeBullet) {
+                const mouseX = event.clientX;
+                const mouseY = event.clientY;
 
-            const angle = Math.atan2(mouseY - (kid.y + kid.height / 2), mouseX - (kid.x + kid.width / 2));
-            const speed = 5;
+                const angle = Math.atan2(mouseY - (kid.y + kid.height / 2), mouseX - (kid.x + kid.width / 2));
+                const speed = 5;
 
-            bullets.push({
-                x: kid.x + kid.width / 2,
-                y: kid.y + kid.height / 2,
-                speedX: Math.cos(angle) * speed,
-                speedY: Math.sin(angle) * speed
-            });
+                activeBullet = {
+                    x: kid.x + kid.width / 2,
+                    y: kid.y + kid.height / 2,
+                    speedX: Math.cos(angle) * speed,
+                    speedY: Math.sin(angle) * speed
+                };
 
-            bulletSound.play(); // Play bullet shooting sound
+                bulletSound.play();
+            }
         });
 
         spawnAirplane();
